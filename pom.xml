@@ -13,7 +13,7 @@
         <maven.compiler.target>1.8</maven.compiler.target>
         <main-class>com.example.bigdata.ProcessingEngine</main-class>
         <encoding>UTF-8</encoding>
-        <scala.version>2.12.8</scala.version>
+        <scala.version>2.12.7</scala.version>
         <scala.compat.version>2.12</scala.compat.version>
         <flink.version>1.14.4</flink.version>
     </properties>
@@ -37,8 +37,7 @@
     </dependencies>
 
     <build>
-        <sourceDirectory>src/main/scala</sourceDirectory>
-        <testSourceDirectory>src/test/scala</testSourceDirectory>
+        <sourceDirectory>src/com/example/bigdata</sourceDirectory>
         <plugins>
             <plugin>
                 <!-- Build Scala -->
@@ -58,48 +57,6 @@
                                 <addScalacArgs>-target:jvm-1.8</addScalacArgs>
                             </args>
                         </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <!-- Build an executable JAR -->
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.2.2</version>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <addClasspath>true</addClasspath>
-                            <classpathPrefix>lib/</classpathPrefix>
-                            <mainClass>${main-class}</mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
-            </plugin>
-            <plugin>
-                <!-- Build an executable fat JAR -->
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.3.0</version>
-                <configuration>
-                    <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                    </descriptorRefs>
-                    <archive>
-                        <manifest>
-                            <addClasspath>true</addClasspath>
-                            <classpathPrefix>lib/</classpathPrefix>
-                            <mainClass>${main-class}</mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>assemble-all</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>single</goal>
-                        </goals>
                     </execution>
                 </executions>
             </plugin>
