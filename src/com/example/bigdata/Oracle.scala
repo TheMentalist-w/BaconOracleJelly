@@ -1,9 +1,9 @@
 package com.example.bigdata
 
 import java.nio.charset.CodingErrorAction
-
 import net.liftweb.json.{DefaultFormats, _}
 
+import scala.collection.mutable.ListBuffer
 import scala.io.{Codec, Source}
 
 case class Person (
@@ -19,12 +19,19 @@ case class Movie (
 
 // name - nazwa bohatera, to_id - id filmu, from_id - id aktora
 case class ActsIn (
-  to_id: Int,
-  from_id: Int
-)
+                    to_id: Int,
+                    from_id: Int
+                  )
+
+// klasa do przechowywania trójek (osoba1, osoba2, film)
+case class Connection (
+                        actor1: Int,
+                        actor2: Int ,
+                        movie: Int
+                      )
 
 object Oracle extends App {
-//  val env = ExecutionEnvironment.getExecutionEnvironment
+  //  val env = ExecutionEnvironment.getExecutionEnvironment
   implicit val formats = DefaultFormats
   implicit val codec = Codec("UTF-8")
   codec.onMalformedInput(CodingErrorAction.REPLACE)
@@ -52,6 +59,8 @@ object Oracle extends App {
     .toMap
   moviesJSONString.close()
 
+  println("MOVIES", movies.take(5))
+
   // Wczytanie informacji o tym kto gdzie grał
   val actsFile = "./cineasts/acts_in.json"
   val actsJSONString = Source.fromFile(actsFile)
@@ -63,19 +72,37 @@ object Oracle extends App {
     .toMap
   actsJSONString.close()
 
-  //TODO Połączenie w trójki (osoba1, osoba2, film)
-  val connections = acts
-    .map(act => movies.get(act._1._1).orNull -> (people.get(act._1._2).orNull, movies.get(act._1._1).orNull)).toMap
 
+  println("ACTS", acts.take(5))
 
+  // Połączenie w trójki (osoba1 (ID), osoba2 (ID), film (ID))
+
+  var tripletsList = new ListBuffer[Connection]()
+  var i = 0 // TODO delete this counting later
+
+  movies.keys.foreach( movie_id=>
+            {
+                  if (i%500 == 0) println( "%d percent done".format( {i*100/movies.keys.size} ))
+
+                  val acts_filtered_by_movie = acts.values.filter(_.to_id == movie_id)
+
+                  acts_filtered_by_movie.foreach(
+                      act1 => acts_filtered_by_movie.foreach(
+                      act2 => {tripletsList += Connection(act1.from_id,act2.from_id, movie_id)}))
+
+                  i+=1
+            }
+  )
+
+  println(tripletsList.take(5))
 
 
   // Elminowanie duplikatów par osób - jedno połączenie wystarczy - może reduceByKey czy jakoś tak
-//  val reducedConnections = x
-//    .groupBy(_._1)
-//    .reduce((a, b) => a)
-//
+  //  val reducedConnections = x
+  //    .groupBy(_._1)
+  //    .reduce((a, b) => a)
+  //
 
   // Wygenerowanie grafu z wierzchołkami jako ludźmi i krawędziami jako grał z ... w ...
-//  val graph = Graph.(people, movies)
+  //  val graph = Graph.(people, movies)
 }
