@@ -1,15 +1,20 @@
 package com.example.bigdata
 
 import java.nio.charset.CodingErrorAction
-import net.liftweb.json.{DefaultFormats, _}
 
-import scala.collection.mutable.ListBuffer
-import scala.io.{Codec, Source}
+import org.apache.flink.graph.scala.Graph
+import net.liftweb.json.{DefaultFormats, _}
+import org.apache.flink.api.scala.ExecutionEnvironment
+import org.apache.flink.api.scala.createTypeInformation
+import org.apache.flink.graph.{Vertex}
+import org.apache.flink.api.java.aggregation.Aggregations
+import org.apache.flink.graph.spargel.{GatherFunction, MessageIterator, ScatterFunction}
+
+import scala.io.{Codec}
 
 case class Person (
   name: String,
   id: Int,
-  labels: List[String]
 )
 
 case class Movie (
@@ -23,91 +28,165 @@ case class ActsIn (
                     from_id: Int
                   )
 
-// klasa do przechowywania trójek (osoba1, osoba2, film)
-case class Connection (
-                        actor1: Int,
-                        actor2: Int ,
-                        movie: Int
-                      )
 
 object Oracle extends App {
-  //  val env = ExecutionEnvironment.getExecutionEnvironment
+  val env = ExecutionEnvironment.getExecutionEnvironment
   implicit val formats = DefaultFormats
   implicit val codec = Codec("UTF-8")
   codec.onMalformedInput(CodingErrorAction.REPLACE)
   codec.onUnmappableCharacter(CodingErrorAction.REPLACE)
 
   // Wczytywanie ludzi
-  val peopleFile = "./cineasts/persons.json"
-  val peopleJSONString = Source.fromFile(peopleFile)
-  val people = peopleJSONString
-    .getLines()
+  val people = env.readTextFile("./cineasts/persons.json")
     .map(person =>
-        parse(person).extract[Person].id -> parse(person).extract[Person]
+        parse(person).extract[Person]
       )
-    .toMap
-  peopleJSONString.close()
 
   // Wczytanie informacji o filmach
-  val moviesFile = "./cineasts/movies.json"
-  val moviesJSONString = Source.fromFile(moviesFile)
-  val movies = moviesJSONString
-    .getLines()
+  val movies = env.readTextFile("./cineasts/movies.json")
     .map(movie =>
-      parse(movie).extract[Movie].id -> parse(movie).extract[Movie]
+      parse(movie).extract[Movie]
     )
-    .toMap
-  moviesJSONString.close()
-
-  println("MOVIES", movies.take(5))
 
   // Wczytanie informacji o tym kto gdzie grał
-  val actsFile = "./cineasts/acts_in.json"
-  val actsJSONString = Source.fromFile(actsFile)
-  val acts = actsJSONString
-    .getLines()
+  val acts = env.readTextFile("./cineasts/acts_in.json")
     .map(act =>
-      (parse(act).extract[ActsIn].to_id, parse(act).extract[ActsIn].from_id) -> parse(act).extract[ActsIn]
+      parse(act).extract[ActsIn]
     )
-    .toMap
-  actsJSONString.close()
+
+  // Wczytanie informacji o reżyserach do tej samej klasy co powyżej (te same pola)
+  val directed = env.readTextFile("./cineasts/directed.json")
+    .map(act =>
+      parse(act).extract[ActsIn]
+    )
+
+  // Mapowanie aktorów na wierzchołki id_aktora, obiekt Aktor
+  val vertices = people.map(person => (person.id, person))
+
+  // Połączenie danych o reżyserii i rolach, potem połączenie z aktorami po id
+  val personInMovie = directed.union(acts).join(people).where(_.from_id).equalTo(_.id)
+    .join(movies) // Połączenie z filmami po id
+    .where(_._1.to_id)
+    .equalTo(_.id)
+    .map(x => (x._1._2, x._2)) // Zmapowanie na DataSet[(Person, Movie)]
+
+  // Full join na DS po id filmu
+  val edges = personInMovie.join(personInMovie).where(_._2.id).equalTo(_._2.id)
+    .map(z => (z._1._1, z._2._1, z._1._2)) // mapowanie do trójek (Person, Person, Movie)
+    .filter(triple => triple._1.id != triple._2.id) // odrzuć trójki z tą samą osobą
+    .groupBy(triple => (triple._1, triple._2)) // grupuj po tych samych osobach
+    .reduceGroup(i => {
+      val first = i.next()
+      (first._1.id, first._2.id, 1)
+    })
+
+  // Zbuduj graf
+  var graph = Graph.fromTupleDataSet(vertices, edges, env)
+
+  // Lista Id osób, które z nikim nie grały
+  val unconnectedVerticesId = graph
+    .getDegrees
+    .filter(_._2.getValue == 0)
+    .map(x => x._1)
+    .collect()
+
+  // Lista osób (wierzchołków), które z nikim nie grały
+  val unconnectedVertices = graph.getVertices
+    .filter(x => unconnectedVerticesId.contains(x.getId))
+    .collect()
+    .toList
+
+  // Usuwanie wierzchołków
+  graph = graph.removeVertices(unconnectedVertices)
 
 
-  println("ACTS", acts.take(5))
+  // Zad 3
+  val histogram = graph.getDegrees()
+    .map(stat => (stat._2, 1))
+    .groupBy(0)
+    .aggregate(Aggregations.SUM, 1)
+    .collect()
+    .toArray
+    .sortBy(_._1)
 
-  // Połączenie w trójki (osoba1 (ID), osoba2 (ID), film (ID))
-
-  var tripletsList = new ListBuffer[Connection]()
-  var i = 0 // TODO delete this counting later
-
-  movies.keys.foreach( movie_id=>
-            {
-                  if (i%500 == 0) println( "%d percent done".format( {i*100/movies.keys.size} ))
-
-                  val acts_filtered_by_movie = acts.values.filter(_.to_id == movie_id)
-
-                  acts_filtered_by_movie.foreach(
-                      act1 => acts_filtered_by_movie.foreach(
-                      act2 => {tripletsList += Connection(act1.from_id,act2.from_id, movie_id)}))
-
-                  i+=1
-            }
+  // Wypisz stopień_wierzchołka, liczbę_wierzchołków o tym stopniu
+  histogram.foreach(degree =>
+    println(degree._1, degree._2)
   )
 
-  println(tripletsList.take(5))
 
 
-  val whoKnowsWho = tripletsList.map(a => (a.actor1, a.actor2)).filter(a => a._1 != a._2).distinct
-  println(whoKnowsWho.take(5))
+  // ZAD 4
+//  val denominator = graph.getDegrees()
+//    .map(tuple => (tuple._1, tuple._2.getValue * (tuple._2.getValue - 1) / 2.0))
+//
+//  val verticesParsed = vertices.map(tuple => (Integer.valueOf(tuple._1), tuple._2))
+//  val edgesParsed = edges.map(tuple => (Integer.valueOf(tuple._1), Integer.valueOf(tuple._2), Integer.valueOf(tuple._3)))
+//  var graphParsed = Graph.fromTupleDataSet(verticesParsed, edgesParsed, env)
+//
+//  val flatMapFunction = new FlatMapFunction[org.apache.flink.api.java.tuple.Tuple3[Integer, Integer, Integer], org.apache.flink.api.java.tuple.Tuple2[Integer, Int]] {
+//    override def flatMap(value: org.apache.flink.api.java.tuple.Tuple3[Integer, Integer, Integer], out: Collector[org.apache.flink.api.java.tuple.Tuple2[Integer, Int]]): Unit = {
+//      out.collect(org.apache.flink.api.java.tuple.Tuple2.of(value.f0, 1))
+//      out.collect(org.apache.flink.api.java.tuple.Tuple2.of(value.f1, 1))
+//      out.collect(org.apache.flink.api.java.tuple.Tuple2.of(value.f2, 1))
+//    }
+//  }
+//
+//  val triangleCount = graphParsed.run(new TriangleEnumerator[Integer, Person, Integer])
+//    .flatMap(flatMapFunction)
+//    .groupBy(0)
+//    .aggregate(Aggregations.SUM, 1)
+//
+//  val clusterIndex = denominator.join(triangleCount)
+//    .where(_._1)
+//    .equalsTo(_._1)
+//    .map(if (_._2._2 == 0) 0 else _._2._2 / _._2._1)
+//    .aggregate(Aggregations.SUM) / graph.getVertices.count()
 
 
+  // ZAD 5
+  // Sprawdź czy odległość faktycznie wynosi 3
+  final class MinDistanceMessenger extends ScatterFunction[Int, Double, Double, Double] {
+    override def sendMessages(vertex: Vertex[Int, Double]) = {
+      val edges = getEdges.iterator
+      while (edges.hasNext) {
+        val edge = edges.next
+        sendMessageTo(edge.getTarget, vertex.getValue + edge.getValue)
+      }
+    }
+  }
 
-  // Elminowanie duplikatów par osób - jedno połączenie wystarczy - może reduceByKey czy jakoś tak
-  //  val reducedConnections = x
-  //    .groupBy(_._1)
-  //    .reduce((a, b) => a)
-  //
+  final class VertexDistanceUpdater extends GatherFunction[Int, Double, Double] {
+    override def updateVertex(vertex: Vertex[Int, Double], inMessages: MessageIterator[Double]) = {
+      var minDistance = Double.MaxValue
+      while (inMessages.hasNext) {
+        val msg = inMessages.next
+        if (msg < minDistance) {
+          minDistance = msg
+        }
+      }
+      if (vertex.getValue > minDistance) {
+        setNewVertexValue(minDistance)
+      }
+    }
+  }
 
-  // Wygenerowanie grafu z wierzchołkami jako ludźmi i krawędziami jako grał z ... w ...
-  //  val graph = Graph.(people, movies)
+  // Pozyskaj id Kevina Bacona
+  val baconId = graph.getVertices
+    .filter(_.getValue.name.equals("Kevin Bacon"))
+    .map(_.getId)
+    .collect()
+    .toArray
+    .take(1)(0)
+
+  val baconGraph = graph.mapEdges(e => 1.0)
+    .mapVertices(v => if (v.getId == baconId) 0.0 else Double.MaxValue)
+
+  val result = baconGraph.runScatterGatherIteration(new MinDistanceMessenger, new VertexDistanceUpdater, 10)
+    .getVertices
+    .map(vertex => vertex.getValue)
+    .filter(_ != Double.MaxValue)
+
+  println("Bacon distance", result.reduce(_ + _).collect().toArray.take(1)(0) / result.count())
+
 }
