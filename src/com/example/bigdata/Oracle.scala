@@ -97,6 +97,11 @@ object Oracle extends App {
   println(tripletsList.take(5))
 
 
+  val whoKnowsWho = tripletsList.map(a => (a.actor1, a.actor2)).filter(a => a._1 != a._2).distinct
+  println(whoKnowsWho.take(5))
+
+
+
   // Elminowanie duplikatów par osób - jedno połączenie wystarczy - może reduceByKey czy jakoś tak
   //  val reducedConnections = x
   //    .groupBy(_._1)
