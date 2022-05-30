@@ -99,6 +99,70 @@ object Oracle extends App {
   // Usuwanie wierzchołków
   graph = graph.removeVertices(unconnectedVertices)
 
+  // Zad 1
+  // Przygotuj graf do scatter-gather - id to samo, jako wartość wierzchołka jego id
+  val preparedGraph = graph.mapVertices(vertex => vertex.getId)
+
+  final class CompleteMessenger extends ScatterFunction[Int, Int, Int, Int] {
+    override def sendMessages(vertex: Vertex[Int, Int]) = {
+      val edges = getEdges.iterator
+      while (edges.hasNext) {
+        val edge = edges.next
+        sendMessageTo(edge.getTarget, Math.min(vertex.getId, vertex.getValue))
+      }
+    }
+  }
+
+  final class VertexCompleteUpdater extends GatherFunction[Int, Int, Int] {
+    override def updateVertex(vertex: Vertex[Int, Int], inMessages: MessageIterator[Int]) = {
+      var minValue = vertex.getValue
+      while (inMessages.hasNext) {
+        val msg = inMessages.next
+        if (msg < minValue) {
+          minValue = msg
+        }
+      }
+      if (vertex.getValue > minValue) {
+        setNewVertexValue(minValue)
+      }
+    }
+  }
+
+  // Wykonaj scatter-gather
+  val completeGraph = preparedGraph.runScatterGatherIteration(new CompleteMessenger, new VertexCompleteUpdater, 10)
+
+  val completeAgg = completeGraph.getVertices
+    .map(tuple => (tuple.getValue, 1))
+    .groupBy(0)
+    .aggregate(Aggregations.SUM, 1)
+
+  // Policz liczbę grafów
+  val graphsNumber = completeAgg.count()
+  println("Liczba grafów", graphsNumber)
+
+  // Zad 2
+  if (graphsNumber > 1) {
+    // id z najmniejszego grafu
+    val start = completeAgg.minBy(1)
+      .collect()
+      .toArray
+      .take(1)(0)._1
+
+    // Pobranie id wierzchołków w podgrafie
+    val smallest = completeGraph.getVertices
+      .filter(_.getValue == start)
+      .map(_.getId)
+      .collect()
+      .toSet
+
+    // Wypisanie wyalienowanych osób
+    println("Najmniejszy graf zawiera")
+    val smallVertices = graph.getVertices
+      .filter(vertex => smallest.contains(vertex.getId))
+      .collect()
+
+    smallVertices.foreach(vertex => println(vertex.getValue.name))
+  }
 
   // Zad 3
   val histogram = graph.getDegrees()
