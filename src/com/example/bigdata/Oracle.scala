@@ -178,36 +178,6 @@ object Oracle extends App {
     println(degree._1, degree._2)
   )
 
-
-
-  // ZAD 4
-//  val denominator = graph.getDegrees()
-//    .map(tuple => (tuple._1, tuple._2.getValue * (tuple._2.getValue - 1) / 2.0))
-//
-//  val verticesParsed = vertices.map(tuple => (Integer.valueOf(tuple._1), tuple._2))
-//  val edgesParsed = edges.map(tuple => (Integer.valueOf(tuple._1), Integer.valueOf(tuple._2), Integer.valueOf(tuple._3)))
-//  var graphParsed = Graph.fromTupleDataSet(verticesParsed, edgesParsed, env)
-//
-//  val flatMapFunction = new FlatMapFunction[org.apache.flink.api.java.tuple.Tuple3[Integer, Integer, Integer], org.apache.flink.api.java.tuple.Tuple2[Integer, Int]] {
-//    override def flatMap(value: org.apache.flink.api.java.tuple.Tuple3[Integer, Integer, Integer], out: Collector[org.apache.flink.api.java.tuple.Tuple2[Integer, Int]]): Unit = {
-//      out.collect(org.apache.flink.api.java.tuple.Tuple2.of(value.f0, 1))
-//      out.collect(org.apache.flink.api.java.tuple.Tuple2.of(value.f1, 1))
-//      out.collect(org.apache.flink.api.java.tuple.Tuple2.of(value.f2, 1))
-//    }
-//  }
-//
-//  val triangleCount = graphParsed.run(new TriangleEnumerator[Integer, Person, Integer])
-//    .flatMap(flatMapFunction)
-//    .groupBy(0)
-//    .aggregate(Aggregations.SUM, 1)
-//
-//  val clusterIndex = denominator.join(triangleCount)
-//    .where(_._1)
-//    .equalsTo(_._1)
-//    .map(if (_._2._2 == 0) 0 else _._2._2 / _._2._1)
-//    .aggregate(Aggregations.SUM) / graph.getVertices.count()
-
-
   // ZAD 5
   // Sprawdź czy odległość faktycznie wynosi 3
   final class MinDistanceMessenger extends ScatterFunction[Int, Double, Double, Double] {
